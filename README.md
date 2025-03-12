@@ -20,3 +20,16 @@ SCANNapp is a web interface built using Flask, PythonOCC, and TensorFlow that al
    ```bash
    git clone https://github.com/yourusername/SCANNapp.git
    cd SCANNapp
+
+2. Create a virtual environment and install dependencies:
+   Using Conda:
+   conda env create -f environment.yml
+   conda activate yourenv
+
+   Or using pip and a virtual environment:
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+
+3. Run the application
+   python app.py
