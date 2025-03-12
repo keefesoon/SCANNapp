@@ -24,3 +24,8 @@ Thumbs.db
 
 # Local configuration files (if any)
 *.env
+
+# Large files you don’t want tracked
+ann_model1.h5
+Miniforge3-MacOSX-arm64.sh
+Miniforge3.sh
