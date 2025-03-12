@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Threading Select (Approach A Demo)</title>
+</head>
+<body>
+  <h1>Threading Cascade: Type → Material → Size</h1>
+
+  <form method="POST">
+    <!-- 1) Thread Type -->
+    <label>Thread Type:</label>
+    <select name="selected_type" onchange="this.form.submit()">
+      <option value="">-- select --</option>
+      {% for t in all_types %}
+        <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+    <br><br>
+
+    <!-- 2) Material -->
+    <label>Material:</label>
+    <select name="selected_material" onchange="this.form.submit()">
+      <option value="">-- select --</option>
+      {% for m in all_materials %}
+        <option value="{{ m }}" {% if m == selected_material %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    <br><br>
+
+    <!-- 3) Size -->
+    <label>Size:</label>
+    <select name="selected_size" onchange="this.form.submit()">
+      <option value="">-- select --</option>
+      {% for s in all_sizes %}
+        <option value="{{ s }}" {% if s == selected_size %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <br><br>
+
+    <input type="submit" value="Confirm" />
+  </form>
+
+  <p style="color:green;">{{ message }}</p>
+</body>
+</html>
