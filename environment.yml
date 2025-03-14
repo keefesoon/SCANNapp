@@ -10,5 +10,4 @@ dependencies:
   - scipy
   - pythonocc-core
   - pip
-  - pip:
-    - <any extra pip-only packages>
+  - pip: []
