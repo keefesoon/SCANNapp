@@ -173,7 +173,21 @@ def upload_and_scan():
     #)
     #session['surf_detect'] = perc_surf_area
 
-    # spawn viewer (optional)
+    # Get the material shape from the form
+    material_shape = request.form.get('material_shape', '').strip()
+
+    # call the pyocc function to compute geometry
+    try:
+        results_dict, faces = pyocc(step_path,material_shape)
+        print("DEBUG: Geometry results from pyocc:", results_dict)
+        sys.stdout.flush()
+        session['pyocc_data'] = results_dict
+        # Also store the detection percentage separately for your interface:
+        session['surf_detect'] = results_dict.get("Det", "N/A")
+    except Exception as geo_err:
+        flash(f"Error running pyocc on the uploaded STEP: {geo_err}")
+
+
     python_exe = sys.executable
     viewer_script = os.path.join(os.path.dirname(__file__), "viewer.py")
     print("DEBUG: viewer_script =", viewer_script)
@@ -196,11 +210,28 @@ def load_and_convert_model():
         return tf.keras.models.load_model(keras_path)
     else:
         raise FileNotFoundError(f"Keras model file not found at: {keras_path}")
+    
+@app.route('/reset_all', methods=['POST'])
+def reset_all():
+    # Clear out any session data
+    session.clear()
+
+    # If you also want to remove the STL/STEP file from disk, do so here.
+    # e.g. if 'stl_model' is in session, remove that file:
+    # if 'stl_model' in session:
+    #     stl_path = os.path.join('static', session['stl_model'])
+    #     if os.path.exists(stl_path):
+    #         os.remove(stl_path)
+    # You could do something similar for the uploaded STEP file.
+
+    flash("All data has been reset.")
+    return redirect(url_for('index'))
 
 
 
 def predict_cost():
-    # Build a path to "ann_model1.keras" in the same folder as app.py
+    # Build a path to "
+    # _model1.keras" in the same folder as app.py
     model = load_and_convert_model()
     # Gather and strip basic inputs from the form
     
@@ -218,6 +249,7 @@ def predict_cost():
         "Length": 130.0, "Vol": 250.0, "Act_Vol": 250.0,
         "VOL": 250.0, "VF": 0, "VID": 0, "VOD": 0, "SP": 0, "SGDH": 0, "HRC": 0
     })
+    print("DEBUG: pyocc_data retrieved in predict_cost:", pyocc_data)
 
     # Build a list of threading inputs for boxes 1 to 4
     thread_inputs = []
@@ -272,6 +304,7 @@ def predict_cost():
     # Optionally, add miscellaneous cost
     total_cost += misc_cost_val
 
+   
     breakdown_dict = {
         "raw_material": rm_cost,
         "labour_rate": lb_cost,

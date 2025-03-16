@@ -314,6 +314,15 @@
           >{{ shape }}</option>
           {% endfor %}
         </select><br>
+        
+        <!-- Surface Finish -->
+        <label>Surface Finish:</label>
+        <select name="surface_finish">
+          <option value="">-- select --</option>
+          {% for sf in surface_finishes %}
+          <option value="{{ sf }}">{{ sf }}</option>
+          {% endfor %}
+        </select><br>
 
         <!-- Secondary Processes -->
         <label>Secondary Processes:</label>
@@ -324,15 +333,6 @@
             selected
             {% endif %}
           >{{ ap }}</option>
-          {% endfor %}
-        </select><br>
-
-        <!-- Surface Finish -->
-        <label>Surface Finish:</label>
-        <select name="surface_finish">
-          <option value="">-- select --</option>
-          {% for sf in surface_finishes %}
-          <option value="{{ sf }}">{{ sf }}</option>
           {% endfor %}
         </select><br>
 
@@ -354,7 +354,7 @@
 
         <!-- Threading Selection with 4 columns, each fully dynamic via AJAX -->
         <div class="threading-selection">
-          <label class="threading-selection-label">Threading Selection (AJAX):</label>
+          <label class="threading-selection-label">Threading Selection:</label>
           <div class="threading-box-container">
 
             <!-- BOX #1 -->
@@ -636,6 +636,13 @@
                  placeholder="Cost will appear here"
                  style="width:180px; padding:4px;"
                  value="{{ cost|default('None') }}">
+        </div>
+        
+        <!-- Add a new "Reset All" form/button below -->
+        <div style="margin-top:20px;">
+          <form method="POST" action="/reset_all">
+            <button type="submit" name="reset_all">Reset All</button>
+          </form>
         </div>
       </div>
     </div>
