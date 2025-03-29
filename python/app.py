@@ -41,17 +41,24 @@ from OCC.Display.SimpleGui import init_display
 ################################################################################
 # Flask App
 ################################################################################
+# Set global paths relative to this file’s location.
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+
 app = Flask(__name__)
 app.secret_key = "some_secret_key_here"
-app.config['UPLOAD_FOLDER'] = "uploads"
+app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, "uploads")
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # We store the "Threading Cost.csv" in memory for the Approach A route
-df_thread = pd.read_csv("Threading Cost.csv", encoding="utf-8", dtype=str)  # all as string for easy matching
+threading_csv_path = os.path.join(DATA_DIR, "Threading Cost.csv")
+df_thread = pd.read_csv(threading_csv_path, encoding="utf-8", dtype=str)  # all as string for easy matching
 
 @app.route('/', methods=['GET','POST'])
 def index():
     """The main route that shows the big form (upload, region, etc.)."""
+
 
     # 1) Retrieve any cost/breakdown from session (they are popped so they won't persist after one GET)
     cost = session.get('machining_cost', None)
@@ -493,8 +500,9 @@ def load_and_convert_model():
     """
     Loads the ANN model from a Keras H5 file.
     """
-    keras_path = os.path.join(os.path.dirname(__file__), "ann_model1.keras")
-    
+    #keras_path = os.path.join(os.path.dirname(__file__), "ann_model1.keras")
+    keras_path = os.path.join("models", "ann_model1.keras")
+
     if os.path.exists(keras_path):
         print("Loading model from Keras H5 file:", keras_path)
         return tf.keras.models.load_model(keras_path)

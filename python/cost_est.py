@@ -22,6 +22,9 @@ from OCC.Display.SimpleGui import init_display
 ################################################################################
 # Threading cost function
 ################################################################################
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+MODELS_DIR = os.path.join(BASE_DIR, "models")
 
 def get_threading_cost(file_path, thread_type, material, size, connection, qty, offset, length):
     """
@@ -36,7 +39,8 @@ def get_threading_cost(file_path, thread_type, material, size, connection, qty, 
       7: Factor for 'LONG PART >180'
       8: Factor for 'LONG PART >120'
     """
-    df = pd.read_csv(file_path)
+    thr_path = os.path.join(DATA_DIR, file_path)
+    df = pd.read_csv(thr_path)
     
     # Create a mask for a case-insensitive comparison on the text fields
     # and for an integer comparison on the QTY column.
@@ -103,14 +107,16 @@ def get_labour_rate(lb_file, region):
     Reads the Labour Rate CSV and calculates total labour cost.
     Expects columns "Region", "Wage (per hour)", and "Number of Workers".
     """
-    lb_df = pd.read_csv(lb_file)
+    lb_path = os.path.join(DATA_DIR, lb_file)
+    lb_df = pd.read_csv(lb_path)
     wage = lb_df.loc[lb_df["Region"] == region, "Wage (per hour)"].values[0]
     num_workers = lb_df.loc[lb_df["Region"] == region, "Number of Workers"].values[0]
     labor_cost = num_workers * wage
     return labor_cost
 
 def get_rm_cost(rm_file, region, mat_spec):
-    df = pd.read_csv(rm_file)
+    rm_path = os.path.join(DATA_DIR, rm_file)
+    df = pd.read_csv(rm_path)
     row = df.loc[df["Mat_Spec"].astype(str).str.strip() == mat_spec.strip()]
     if row.empty:
         print("Mat Spec data not found.")
@@ -146,7 +152,8 @@ def get_rm_cost(rm_file, region, mat_spec):
         return None
 
 def get_secondary_processes_cost(file_path, region, selected_processes):
-    df = pd.read_csv(file_path)
+    sp_path = os.path.join(DATA_DIR, file_path)
+    df = pd.read_csv(sp_path)
     print("DEBUG columns:", df.columns)
     print("DEBUG first few rows:\n", df.head())
     region_map = {
@@ -181,13 +188,20 @@ def get_secondary_processes_cost(file_path, region, selected_processes):
 # load_options for form dropdowns
 ################################################################################
 def load_options():
-    def read_csv_column(csv_path, col_name):
+    def read_csv_column(csv_name, col_name):
+        csv_path = os.path.join(DATA_DIR, csv_name)
+        print("DEBUG read_csv_column ->", csv_path, "looking for column:", col_name)
         if not os.path.exists(csv_path):
+            print("DEBUG file does NOT exist:", csv_path)
             return []
         df = pd.read_csv(csv_path, encoding="utf-8")
+        print("DEBUG df columns for", csv_name, ":", df.columns.tolist())
         if col_name not in df.columns:
+            print(f"DEBUG column '{col_name}' not in df.columns for {csv_name}")
             return []
-        return sorted(df[col_name].dropna().unique().tolist())
+        values = df[col_name].dropna().unique().tolist()
+        print("DEBUG: Values in", col_name, ":", values)
+        return sorted(values)
 
     material_specs   = read_csv_column("RM Cost.csv", "Mat_Spec")
     material_shapes  = read_csv_column("MaterialShape.csv", "Material Shape")
@@ -284,7 +298,7 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
     print("DEBUG cost_est: thread_inputs =", thread_inputs)
 
     # Debug: Verify the model file path
-    model_path = "ann_model1_new.keras"
+    model_path = os.path.join(MODELS_DIR, "ann_model1_new.keras")
     print(f"Model path: {os.path.abspath(model_path)}")
     print(f"Model exists: {os.path.exists(model_path)}")
 

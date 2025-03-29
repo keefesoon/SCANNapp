@@ -33,3 +33,4 @@ SCANNapp is a web interface built using Flask, PythonOCC, and TensorFlow that al
 
 3. Run the application
    python app.py
+
