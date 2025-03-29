@@ -1,8 +1,7 @@
 import sys
 import os
-
+import io
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
 import math
 import random
 import subprocess
@@ -15,7 +14,7 @@ from tensorflow.python.keras.layers import Dense
 from tensorflow.python.keras.models import load_model
 from scipy.stats import boxcox, yeojohnson
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, session
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, session, send_file
 
 from cost_est import (
     cost_est,
@@ -55,18 +54,21 @@ def index():
     """The main route that shows the big form (upload, region, etc.)."""
 
     # 1) Retrieve any cost/breakdown from session (they are popped so they won't persist after one GET)
-    cost = session.pop('machining_cost', None)
-    breakdown = session.pop('breakdown', None)
-    stl_model = session.pop('stl_model', None)
-    surf_detect = session.pop('surf_detect', None)
+    cost = session.get('machining_cost', None)
+    breakdown = session.get('breakdown', None)
+    stl_model = session.get('stl_model', None)
+    surf_detect = session.get('surf_detect', None)
 
     # 2) Retrieve previously saved form inputs (if any)
-    form_data = session.pop('last_form_data', {})
+    form_data = session.get('last_form_data', {})
 
     # 3) Load the dropdown options, etc.
     opts = load_options()
 
     if request.method == 'POST':
+        if 'batch_upload' in request.form:
+            return process_batch_upload()
+        
         # Save the entire POSTed form in session so we can re-populate fields after redirect
         session['last_form_data'] = request.form.to_dict(flat=False)
 
@@ -74,9 +76,11 @@ def index():
         if 'scan_surfaces' in request.form:
             return upload_and_scan()
         elif 'generate_report' in request.form:
-            return generate_report()
+            return generate_report() # our csv generator
         elif 'predict_cost' in request.form:
             return predict_cost()
+        elif 'batch_upload' in request.form:
+            return process_batch_upload()  # <-- new function for batch CSV
         else:
             flash("No valid action specified.")
             return redirect(url_for('index'))
@@ -163,22 +167,13 @@ def upload_and_scan():
     except Exception as e:
         flash(f"Error generating STL: {e}")
 
-    #part_number = 123
-    #rmtype = "Rod"
-    #rleng, rvol, perc_surf_area = fake_pyocc(
-    #    pn=part_number,
-    #    filename=step_file.filename,
-    #    filepath=step_path,
-    #    rmtype=rmtype
-    #)
-    #session['surf_detect'] = perc_surf_area
 
     # Get the material shape from the form
-    material_shape = request.form.get('material_shape', '').strip()
+    material_shape = request.form.get('material_shape', '').strip().upper()
 
     # call the pyocc function to compute geometry
     try:
-        results_dict, faces = pyocc(step_path,material_shape)
+        results_dict, faces = pyocc(step_path, material_shape)
         print("DEBUG: Geometry results from pyocc:", results_dict)
         sys.stdout.flush()
         session['pyocc_data'] = results_dict
@@ -196,8 +191,303 @@ def upload_and_scan():
     return redirect(url_for('index'))
 
 def generate_report():
-    flash("Generate report: (placeholder)")
-    return redirect(url_for('index'))
+    """
+    Creates a CSV file reflecting the breakdown (raw_material, labour_rate, etc.)
+    plus surfaces detected, etc., and returns it as a download.
+    """
+    # Retrieve data from session
+    breakdown = session.get('breakdown', {})
+    machining_cost = session.get('machining_cost', 0)
+    surf_detect = session.get('surf_detect', "N/A")
+    
+    # Build rows for the CSV. You can adjust the labels as needed.
+    rows = [
+        ["Raw material ($)", breakdown.get("raw_material", 0)],
+        ["Labour Rate ($)", breakdown.get("labour_rate", 0)],
+        ["Sec. Process ($)", breakdown.get("sec_process", 0)],
+        ["Threading Cost ($)", breakdown.get("threading", 0)],
+        ["Misc ($)", breakdown.get("misc", 0)],
+        ["Machining Hours", round(breakdown.get("machine_hours", 0),2)],
+        ["Mass (Kg)", round(breakdown.get("mass", 0),2)],
+        ["Volume", round(breakdown.get("volume", 0),2)],
+        ["Surfaces Detected (%)", round(surf_detect,2)],
+        ["Machining cost ($)", round(machining_cost,2)]
+    ]
+    
+    # Create a DataFrame
+    df = pd.DataFrame(rows, columns=["Item", "Value"])
+    
+    # Write the DataFrame to an in-memory CSV file
+    output = io.StringIO()
+    df.to_csv(output, index=False)
+    output.seek(0)
+    
+    # Return the CSV file as a download
+    return send_file(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        as_attachment=True,
+        download_name="Report.csv",
+        mimetype="text/csv"
+    )
+
+@app.route("/batch_upload", methods=["POST"])
+def process_batch_upload():
+    """
+    Handles the 'Batch CSV' upload. For each row in the CSV, we parse the inputs,
+    call pyocc(...) for geometry, then cost_est(...) for cost calculations,
+    and finally produce an output CSV with the results.
+    """
+    # 1) Get the uploaded CSV file from the form
+    file_obj = request.files.get('batch_csv')
+    if not file_obj:
+        flash("No batch CSV provided.")
+        return redirect(url_for('index'))
+
+    # 2) Read the CSV into a DataFrame
+    import pandas as pd
+    try:
+        df = pd.read_csv(file_obj)
+    except Exception as e:
+        flash(f"Error reading the uploaded CSV: {e}")
+        return redirect(url_for('index'))
+
+    # 3) Prepare a list to hold the results for each row
+    results_list = []
+
+    # 4) Iterate over each row in the input CSV
+    for idx, row in df.iterrows():
+        # ------------------------------------------------------------------
+        # (A) Extract all input columns from the row
+        #     Make sure to adapt column names to your actual CSV headings
+        # ------------------------------------------------------------------
+        part_number     = str(row.get('Part Number', '')).strip()
+        region          = str(row.get('Region', '')).strip()
+        mat_spec        = str(row.get('Material Specs', '')).strip()
+        mat_shape       = str(row.get('Material Shape', '')).strip().upper()
+        surf_finish     = str(row.get('Surface Finish', '')).strip()
+        offset_val      = str(row.get('Offset (on/off)', 'off')).strip()
+        misc_str        = str(row.get('Misc Cost', '0')).strip()
+        # If it's "nan" or empty, treat as "0"
+        if misc_str.lower() in ("nan", ""):
+            misc_str = "0"
+        try:
+            misc_cost_val = float(misc_str)
+        except ValueError:
+            misc_cost_val = 0.0
+
+        # Threading #1 columns
+        thr_type_1 = str(row.get('Threading', '')).strip()
+        thr_conn_1 = str(row.get('Threading Connection', '')).strip()
+        thr_mat_1  = str(row.get('Material', '')).strip()
+        thr_qty_1  = row.get('Qty', 0)
+        thr_size_1 = str(row.get('Size', '')).strip()
+
+        # Threading #2 columns
+        thr_type_2 = str(row.get('Threading 2', '')).strip()
+        thr_conn_2 = str(row.get('Threading Connection.1', '')).strip()
+        thr_mat_2  = str(row.get('Material.1', '')).strip()
+        thr_qty_2  = row.get('Qty.1', 0)
+        thr_size_2 = str(row.get('Size.1', '')).strip()
+
+        # Threading #3 columns
+        thr_type_3 = str(row.get('Threading 3', '')).strip()
+        thr_conn_3 = str(row.get('Threading Connection.2', '')).strip()
+        thr_mat_3  = str(row.get('Material.2', '')).strip()
+        thr_qty_3  = row.get('Qty.2', 0)
+        thr_size_3 = str(row.get('Size.2', '')).strip()
+
+        # Threading #4 columns
+        thr_type_4 = str(row.get('Threading 4', '')).strip()
+        thr_conn_4 = str(row.get('Threading Connection.3', '')).strip()
+        thr_mat_4  = str(row.get('Material.3', '')).strip()
+        thr_qty_4  = row.get('Qty.3', 0)
+        thr_size_4 = str(row.get('Size.3', '')).strip()
+
+        # Secondary processes
+        sec_proc_str = str(row.get('Secondary Processes', '')).strip()
+        # Could be something like "Process1, Process2" or "Process1;Process2"
+        # We'll split by comma here:
+        selected_procs = [p.strip() for p in sec_proc_str.split(',') if p.strip()]
+
+        # STEP file path
+        step_path = str(row.get('File Path (Step file)', '')).strip()
+    
+        # ------------------------------------------------------------------
+        # (B) Build the 'thread_inputs' list, up to 4 boxes
+        # ------------------------------------------------------------------
+        thread_inputs = []
+        # Box 1
+        if thr_type_1 and thr_conn_1 and thr_mat_1 and thr_qty_1:
+            try:
+                thr_qty_1 = int(thr_qty_1)
+            except ValueError:
+                thr_qty_1 = 0
+            if thr_qty_1 > 0:
+                thread_inputs.append({
+                    "thr_type": thr_type_1,
+                    "thr_mat": thr_mat_1,
+                    "thr_size": thr_size_1,
+                    "thr_conn": thr_conn_1,
+                    "thr_qty": thr_qty_1
+                })
+        # Box 2
+        if thr_type_2 and thr_conn_2 and thr_mat_2 and thr_qty_2:
+            try:
+                thr_qty_2 = int(thr_qty_2)
+            except ValueError:
+                thr_qty_2 = 0
+            if thr_qty_2 > 0:
+                thread_inputs.append({
+                    "thr_type": thr_type_2,
+                    "thr_mat": thr_mat_2,
+                    "thr_size": thr_size_2,
+                    "thr_conn": thr_conn_2,
+                    "thr_qty": thr_qty_2
+                })
+        # Box 3
+        if thr_type_3 and thr_conn_3 and thr_mat_3 and thr_qty_3:
+            try:
+                thr_qty_3 = int(thr_qty_3)
+            except ValueError:
+                thr_qty_3 = 0
+            if thr_qty_3 > 0:
+                thread_inputs.append({
+                    "thr_type": thr_type_3,
+                    "thr_mat": thr_mat_3,
+                    "thr_size": thr_size_3,
+                    "thr_conn": thr_conn_3,
+                    "thr_qty": thr_qty_3
+                })
+        # Box 4
+        if thr_type_4 and thr_conn_4 and thr_mat_4 and thr_qty_4:
+            try:
+                thr_qty_4 = int(thr_qty_4)
+            except ValueError:
+                thr_qty_4 = 0
+            if thr_qty_4 > 0:
+                thread_inputs.append({
+                    "thr_type": thr_type_4,
+                    "thr_mat": thr_mat_4,
+                    "thr_size": thr_size_4,
+                    "thr_conn": thr_conn_4,
+                    "thr_qty": thr_qty_4
+                })
+
+        # ------------------------------------------------------------------
+        # (C) Optionally run pyocc(...) to get geometry data
+        # ------------------------------------------------------------------
+        pyocc_data = {
+            # fallback defaults if we can't read the step file
+            "Length": 130.0,
+            "Vol": 250.0,
+            "Act_Vol": 250.0,
+            "VF": 0.0,
+            "VID": 0.0,
+            "VOD": 0.0,
+            "SP": 0.0,
+            "SGDH": 0.0,
+            "HRC": 0
+        }
+        # We'll store the surface detection % in e.g. 'Det'
+        surface_detect = 0.0
+
+        # Convert offset string "on"/"off" properly
+        offset_str = "on" if offset_val.lower() == "on" else "off"
+
+        if step_path and os.path.isfile(step_path):
+            try:
+                geo_results, _faces = pyocc(step_path, mat_shape)
+                # e.g. geo_results might have: "Det", "Length", "Vol", "VF", etc.
+                surface_detect = geo_results.get("Det", 0.0)
+
+                # Copy them into pyocc_data
+                pyocc_data["Length"]   = geo_results.get("Length", 130.0)
+                pyocc_data["Vol"]      = geo_results.get("Vol", 250.0)
+                pyocc_data["Act_Vol"]  = geo_results.get("Vol", 250.0)
+                pyocc_data["VF"]       = geo_results.get("VF", 0.0)
+                pyocc_data["VID"]      = geo_results.get("VID", 0.0)
+                pyocc_data["VOD"]      = geo_results.get("VOD", 0.0)
+                pyocc_data["SP"]       = geo_results.get("SP", 0.0)
+                pyocc_data["SGDH"]     = geo_results.get("SGDH", 0.0)
+                # If you have "HRC" from somewhere else, add that too if needed
+                # pyocc_data["HRC"] = ?
+
+            except Exception as geo_ex:
+                print(f"Error in pyocc for row {idx}: {geo_ex}")
+                # fallback to defaults above
+        else:
+            print(f"Row {idx}: STEP file path is invalid or empty -> {step_path}")
+ 
+         # (C) Now call cost_est(...) if you want cost for each row
+        #Debug statement
+        print("DEBUG: region =", region)
+        print("DEBUG: mat_spec =", mat_spec)
+        print("DEBUG: surf_finish =", surf_finish)
+        print("DEBUG: offset_val =", offset_val)
+        print("DEBUG: pyocc_data =", pyocc_data)
+        print("DEBUG: thread_inputs =", thread_inputs)
+        print("DEBUG: selected_procs =", selected_procs)
+
+        total_cost, lb_cost, rm_cost_val, sp_cost_val, thr_cost_val, machine_hrs, volume_val, mass_val = cost_est(
+            region=region,
+            lb_file="LabourRate.csv",
+            rm_file="RM Cost.csv",
+            thr_file="Threading Cost.csv",
+            sp_file="SecondaryProcesses.csv",
+            mat_spec=mat_spec,
+            sf=surf_finish,
+            offset=offset_val,
+            sec_proc=[],
+            pyocc=pyocc_data,
+            thread_inputs=thread_inputs
+        )
+        # Add the user-specified misc cost
+        total_cost += misc_cost_val
+        print("DEBUG after adding misc:", total_cost)
+
+        # (D) Build a dictionary of output columns for this row
+        row_result = {
+            "Part Number": part_number,
+            "Region": region,
+            "Material Specs": mat_spec,
+            "Material Shape": mat_shape,  # if you want the original "Tube"/"Rod"
+            "Surface Finish": surf_finish,
+            "Offset": offset_val,
+            "Surfaces Detected (%)": round(surface_detect,2),
+            "Raw Material": rm_cost_val,
+            "Labour Rate": lb_cost,
+            "Sec. Process": sp_cost_val,
+            "Threading": thr_cost_val,
+            "Misc": misc_cost_val,
+            "Machine Hours": round(machine_hrs,2),
+            "Mass (kg)": round(mass_val,2),
+            "Volume (in^3)": volume_val,
+            "Total Cost ($)": round(total_cost,2)
+        }
+
+        results_list.append(row_result)
+
+    # -----------------------------------------------------------
+    # 5) Convert results_list -> DataFrame
+    # -----------------------------------------------------------
+    results_df = pd.DataFrame(results_list)
+    print("DEBUG: results_df after building:\n", results_df)
+
+    # 6) Write results_df to a new CSV in-memory
+    import io
+    output_stream = io.StringIO()
+    results_df.to_csv(output_stream, index=False)
+    output_stream.seek(0)
+
+    # 7) Return the CSV as a file download
+    from flask import send_file
+    return send_file(
+        io.BytesIO(output_stream.getvalue().encode("utf-8")),
+        as_attachment=True,
+        download_name="Batch_Results.csv",
+        mimetype="text/csv"
+    )
+
 
 def load_and_convert_model():
     """
@@ -215,6 +505,7 @@ def load_and_convert_model():
 def reset_all():
     # Clear out any session data
     session.clear()
+    print("DEBUG after session.clear(), keys are:", list(session.keys()))
 
     # If you also want to remove the STL/STEP file from disk, do so here.
     # e.g. if 'stl_model' is in session, remove that file:
@@ -246,8 +537,18 @@ def predict_cost():
 
     # Get PythonOCC geometry data from session (set during upload_and_scan)
     pyocc_data = session.get("pyocc_data", {
-        "Length": 130.0, "Vol": 250.0, "Act_Vol": 250.0,
-        "VOL": 250.0, "VF": 0, "VID": 0, "VOD": 0, "SP": 0, "SGDH": 0, "HRC": 0
+    "Length": 130.0,
+    "Act_Vol": 250.0,  # Actual volume from the STEP properties
+    "VOL": 250.0,      # Raw (stock) volume computed from dimensions
+    "VF": 0,
+    "VID": 0,
+    "SID": 0,
+    "VOD": 0,
+    "SOD": 0,
+    "SP": 0,
+    "NGDH": 0,
+    "SGDH": 0,
+    "HRC": 0
     })
     print("DEBUG: pyocc_data retrieved in predict_cost:", pyocc_data)
 
@@ -277,6 +578,8 @@ def predict_cost():
     # Surface finish selection (if applicable)
     surface_finish = request.form.get('surface_finish', '').strip()
 
+    print("DEBUG surface_finish raw:", surface_finish)
+
     # Get secondary processes (as a stripped list)
     secondary_procs = [proc.strip() for proc in request.form.getlist('secondary_processes')]
 
@@ -285,6 +588,8 @@ def predict_cost():
     rm_file = "RM Cost.csv"
     thr_file = "Threading Cost.csv"
     sp_file = "SecondaryProcesses.csv"
+
+    print("DEBUG in predict_cost: region =", region, " material_spec =", material_spec)
 
     # Call the consolidated cost estimation function (which now accepts thread_inputs)
     total_cost, lb_cost, rm_cost, sp_cost, thr_cost, machine_hours, vol, mass = cost_est(
@@ -316,9 +621,8 @@ def predict_cost():
         "mass": mass
     }
 
-    session['machining_cost'] = total_cost
+    session['machining_cost'] = round(total_cost,2)
     session['breakdown'] = breakdown_dict
-
     flash(f"Total cost for {material_spec} in {region} => ${total_cost:.2f}")
     return redirect(url_for('index'))
 
@@ -329,4 +633,3 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         app.run(debug=True, host="127.0.0.1", port=5001)
-

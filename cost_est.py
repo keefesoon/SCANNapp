@@ -61,14 +61,20 @@ def get_threading_cost(file_path, thread_type, material, size, connection, qty, 
         print("DEBUG: Matching row found:")
         print(row)
     
-    base_price_str = str(row.iloc[0,5]).replace("$", "").strip()
-    base_price_str = base_price_str.replace(",", "")
+    #base_price_str = str(row.iloc[0,5]).replace("$", "").strip()
+    #base_price_str = base_price_str.replace(",", "")
+    #try:
+    #    base_price = float(base_price_str)
+    #except ValueError:
+    #    base_price = 0.0
+
+        # Directly convert the numeric value
     try:
-        base_price = float(base_price_str)
-    except ValueError:
+        base_price = float(row.iloc[0,5])
+    except (ValueError, TypeError):
         base_price = 0.0
 
-    if offset == "off":
+    if not offset or offset == "off":
         return base_price
     else:
         # Determine the correct factor column based on length
@@ -141,6 +147,8 @@ def get_rm_cost(rm_file, region, mat_spec):
 
 def get_secondary_processes_cost(file_path, region, selected_processes):
     df = pd.read_csv(file_path)
+    print("DEBUG columns:", df.columns)
+    print("DEBUG first few rows:\n", df.head())
     region_map = {
         "China": 1,
         "India": 2,
@@ -155,11 +163,13 @@ def get_secondary_processes_cost(file_path, region, selected_processes):
     col_idx = region_map[region]
     total_proc_cost = 0.0
     for proc in selected_processes:
+        print("DEBUG Checking process =", proc)
         prow = df.loc[df["Processes"] == proc]
+        # print("DEBUG prow:\n", prow)
         if prow.empty:
             continue
         cost_str = prow.iloc[0, col_idx]
-        cost_str = cost_str.replace("$","").strip()
+        #cost_str = cost_str.replace("$","").strip()
         try:
             val = float(cost_str)
         except ValueError:
@@ -268,6 +278,11 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
     Note: The ANN model ("ann_model1_new.keras") is used to predict machine hours based on
           features extracted from pyocc data.
     """
+    print("DEBUG cost_est: region =", region, "mat_spec =", mat_spec, "sf =", sf)
+    print("DEBUG cost_est: offset =", offset, "sec_proc =", sec_proc)
+    print("DEBUG cost_est: pyocc =", pyocc)
+    print("DEBUG cost_est: thread_inputs =", thread_inputs)
+
     # Debug: Verify the model file path
     model_path = "ann_model1_new.keras"
     print(f"Model path: {os.path.abspath(model_path)}")
@@ -283,6 +298,8 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
 
     # 2) Labour cost
     lb_cost = get_labour_rate(lb_file, region)
+    print("DEBUG cost_est: lb_cost =", lb_cost)
+
     
     # 3) Raw material details
     details = get_rm_cost(rm_file, region, mat_spec)
@@ -290,6 +307,7 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
         rm_cost, density, hrc = 0, 0, 0
     else:
         rm_cost, density, hrc = details
+    print("DEBUG cost_est: rm_cost =", rm_cost, "density =", density, "hrc =", hrc)
     
     # 4) Threading cost: iterate over each threading box in thread_inputs
     thr_cost = 0
@@ -304,16 +322,20 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
                                       offset,
                                       pyocc.get("Length", 0))
         thr_cost += cost_val
-    
+    print("DEBUG cost_est: thr_cost =", thr_cost)
+
     # 5) Secondary process cost: sum cost for each selected process
-    sp_cost = 0
-    for proc in sec_proc:
-        sp_cost += get_secondary_processes_cost(sp_file, region, proc)
-    
+    sp_cost = get_secondary_processes_cost(sp_file,region,sec_proc)
+    #for proc in sec_proc:
+    #    print("DEBUG Process = :" ,proc)
+    #   sp_cost += get_secondary_processes_cost(sp_file, region, proc)
+    print("DEBUG cost_est: sp_cost =", sp_cost)
+
     # 6) Geometry: Get part length and volume (use "Act_Vol" if available)
     leng = pyocc.get("Length", 0)
     vol = pyocc.get("Act_Vol", pyocc.get("Vol", 0))
-    
+    print("DEBUG cost_est: length =", leng, "volume =", vol)
+
     # 7) Prepare features for machine hours prediction using the ANN model
     x_vals = {"HRC": hrc}
     features = ["VOL", "VF", "VID", "VOD", "SP", "SGDH"]
@@ -322,15 +344,21 @@ def cost_est(region, lb_file, rm_file, thr_file, sp_file, mat_spec, sf,
     x_vals["SF"] = sf
     x_df = pd.DataFrame([x_vals])
     
+    
     # Normalize inputs and make predictions
     x_norm = reapply_transformation(x_df)
     x_array = x_norm.to_numpy()
+    print("DEBUG: x_array to model =", x_array)
     machine_hours = model.predict(x_array)
     machine_hours = machine_hours.item()
+    print("DEBUG: machine_hours from model =", machine_hours)
     
     # 8) Mass calculation (assuming density in lb/ft³ and vol in in³)
     mass = (density * (vol / 1728)) / 2.205 if density and vol else 0
+    print("DEBUG cost_est: mass =", mass)
     
     # 9) Calculate total cost
     total_cost = lb_cost * machine_hours + rm_cost * mass + thr_cost + sp_cost
+    print("DEBUG cost_est: total_cost (before return) =", total_cost)
+
     return total_cost, lb_cost, rm_cost, sp_cost, thr_cost, machine_hours, vol, mass

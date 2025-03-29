@@ -132,19 +132,6 @@
       overflow-y: auto;
     }
 
-    .visualizer-box {
-      border: 1px solid #ccc;
-      background-color: #f9f9f9;
-      height: 300px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-style: italic;
-      color: #666;
-      margin-bottom: 20px;
-      position: relative;
-    }
-
     .button-bar {
       display: flex;
       gap: 10px;
@@ -236,13 +223,13 @@
       width: 120px;
       font-weight: bold;
     }
+    .reset-button {
+      width: 120px;
+      height: 40px;
+      font-size: 16px;
+      margin-left: 20px; /* if you want extra left margin */
+    }
   </style>
-
-  <!-- three.js + STL loader + orbit controls (unchanged) -->
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/STLLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
-
 </head>
 <body>
 
@@ -254,7 +241,7 @@
   </header>
 
   <!-- Single form for everything -->
-  <form method="POST" enctype="multipart/form-data">
+  <form method="POST" enctype="multipart/form-data" autocomplete="off">
     <div class="container">
       
       <!-- LEFT PANEL -->
@@ -264,13 +251,6 @@
             <span class="corners">Model Inputs</span>
           </div>
         </div>
-
-        <!-- Batch Upload -->
-        <label>Batch Upload:</label>
-        <input type="checkbox" name="batch_upload"><br>
-
-        <label>Batch File:</label>
-        <input type="file" name="batch_file" accept=".csv"><br>
 
         <!-- Part Number -->
         <label>Part Number:</label>
@@ -308,8 +288,8 @@
           <option value="">-- select --</option>
           {% for shape in material_shapes %}
           <option value="{{ shape }}"
-            {% if form_data.get('material_shape') == shape %}  
-            selected
+            {% if form_data.get('material_shape') and form_data.get('material_shape')[0] == shape %}
+              selected
             {% endif %}
           >{{ shape }}</option>
           {% endfor %}
@@ -320,7 +300,11 @@
         <select name="surface_finish">
           <option value="">-- select --</option>
           {% for sf in surface_finishes %}
-          <option value="{{ sf }}">{{ sf }}</option>
+          <option value="{{ sf }}"
+            {% if form_data.get('surface_finish') and form_data.get('surface_finish')[0] == sf %}
+            selected
+            {% endif %}
+          >{{ sf }}</option>
           {% endfor %}
         </select><br>
 
@@ -356,17 +340,16 @@
         <div class="threading-selection">
           <label class="threading-selection-label">Threading Selection:</label>
           <div class="threading-box-container">
-
             <!-- BOX #1 -->
             <div class="threading-box">
               <label>Type:</label>
               <select id="typeSelect1" name="threading1_type" onchange="onTypeChange(1)">
                 <option value="">-- select --</option>
-                  {% for ttype in threading_types %}
-                    <option value="{{ ttype }}"
-                    {% if form_data.get('threading1_type') and form_data.get('threading1_type')[0] == ttype %}
-                      selected
-                    {% endif %}
+                {% for ttype in threading_types %}
+                  <option value="{{ ttype }}"
+                  {% if form_data.get('threading1_type') and form_data.get('threading1_type')[0] == ttype %}
+                    selected
+                  {% endif %}
                   >{{ ttype }}</option>
                 {% endfor %}
               </select>
@@ -528,7 +511,6 @@
                 <option value="16">16</option>
               </select>
             </div>
-
           </div>
         </div>
       </div>
@@ -537,21 +519,13 @@
       <div class="panel-frame">
         <div class="panel-title-wrapper">
           <div class="panel-title">
-            <span class="corners">Visualizer</span>
+            <span class="corners">Actions &amp; Results</span>
           </div>
         </div>
 
-        <div class="visualizer-box" id="threejs-container">
-          {% if stl_model %}
-            <!-- three.js or stl info -->
-          {% else %}
-            3D model preview goes here
-          {% endif %}
-        </div>
-
+        <!-- Upload STEP + Buttons -->
         <label>Upload STEP file:</label>
         <input type="file" name="upload_step" accept=".STEP"><br>
-
         <div class="button-bar">
           <button type="submit" name="scan_surfaces">Scan Surfaces</button>
           <button type="submit" name="generate_report">Generate Report</button>
@@ -573,12 +547,12 @@
                 {% endif %}
               </div>
               <div class="row-item">
-                <span class="label">Total Cost:</span> SGD {{ cost|default('0') }}
+                <span class="label">Total Cost:</span> SGD {{ cost|default(0, true)|round(3) }}
               </div>
               <div class="row-item">
                 <span class="label">Machining Hours:</span>
                 {% if breakdown and breakdown.machine_hours is defined %}
-                  {{ breakdown.machine_hours|round(2) }}
+                  {{ breakdown.machine_hours|default(0)|round(2) }}
                 {% else %}
                   0
                 {% endif %}
@@ -586,7 +560,7 @@
               <div class="row-item">
                 <span class="label">Mass:</span> 
                 {% if breakdown and breakdown.mass is defined %}
-                  {{ breakdown.mass|round(2) }} kg
+                  {{ breakdown.mass|default(0)|round(2) }} kg
                 {% else %}
                   0
                 {% endif %}
@@ -637,39 +611,55 @@
                  style="width:180px; padding:4px;"
                  value="{{ cost|default('None') }}">
         </div>
-        
-        <!-- Add a new "Reset All" form/button below -->
-        <div style="margin-top:20px;">
-          <form method="POST" action="/reset_all">
-            <button type="submit" name="reset_all">Reset All</button>
-          </form>
-        </div>
-      </div>
-    </div>
+      </div> <!-- end of right panel -->
+    </div> <!-- end of container -->
   </form>
 
-  <!-- If stl_model is present, the below script can handle 3D preview in three.js -->
-  {% if stl_model %}
-  <script>
-    // Basic three.js stl loader code (omitted for brevity or included).
-    // ...
-  </script>
-  {% endif %}
+  <!-- 
+    BELOW BOTH PANELS:
+    The Reset All button + Batch Upload form go here,
+    outside the main form, so they appear after both panels
+  -->
 
-  <!-- AJAX script for all 4 boxes -->
+  <div style="margin-top: 5px; text-align: left;">
+    <form method="POST" action="/reset_all">
+      <button type="submit" name="reset_all" class="reset-button">
+        Reset All
+      </button>
+    </form>
+  </div>
+
+  <hr>
+
+  <div style="margin: 20px;">
+    <form method="POST" action="/batch_upload" enctype="multipart/form-data">
+      <h2>Batch Upload</h2>
+      <p>Use this section to upload a CSV for multiple parts.</p>
+      <div>
+        <label for="batch_csv">Batch CSV File:</label>
+        <input type="file" id="batch_csv" name="batch_csv" accept=".csv">
+      </div>
+      <br>
+      <button type="submit">Batch Upload</button>
+    </form>
+  </div>
+
+  <!-- 
+     Optional scripts for three.js, if you still want them in the page
+     (visualizer is removed, so they're not used).
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
+
+  <!-- AJAX script for the 4 threading boxes -->
   <script>
-  // On page load, populate the "type" selects for all 4 boxes
   document.addEventListener("DOMContentLoaded", function(){
-    // load all possible types for box #1..#4
-    // so user can pick something
     fetchThreadOptions(1, {});
     fetchThreadOptions(2, {});
     fetchThreadOptions(3, {});
     fetchThreadOptions(4, {});
   });
-
-  // The 4 BOXes each have 4 separate dropdowns
-  // We'll define onTypeChange(boxNum), onMatChange(boxNum), etc.
 
   function onTypeChange(boxNum) {
     let tVal = document.getElementById(`typeSelect${boxNum}`).value;
@@ -695,7 +685,6 @@
   }
 
   function fetchThreadOptions(boxNum, params) {
-    // build query
     let url = "/api/thread_options?";
     let qParts = [];
     if (params.type) qParts.push("type=" + encodeURIComponent(params.type));
@@ -708,7 +697,6 @@
     fetch(url)
       .then(res => res.json())
       .then(data => {
-        // data => { types, materials, sizes, connections }
         fillSelect(`typeSelect${boxNum}`, data.types, params.type);
         fillSelect(`matSelect${boxNum}`, data.materials, params.material);
         fillSelect(`sizeSelect${boxNum}`, data.sizes, params.size);
@@ -721,7 +709,6 @@
     let sel = document.getElementById(selectId);
     if (!sel) return;
     sel.innerHTML = "";
-    // default
     let defOpt = document.createElement("option");
     defOpt.value = "";
     defOpt.text = "-- select --";
@@ -738,5 +725,7 @@
     });
   }
   </script>
+
 </body>
 </html>
+
