@@ -286,26 +286,34 @@ def process_batch_upload():
         thr_type_1 = str(row.get('Threading', '')).strip()
         thr_conn_1 = str(row.get('Threading Connection', '')).strip()
         thr_mat_1  = str(row.get('Material', '')).strip()
-        thr_qty_1  = row.get('Qty', 0)
+        thr_qty_1_raw = row.get('Qty', 0)
+        print("DEBUG Qty raw value:", thr_qty_1_raw)  # Debug print
+        try:
+            thr_qty_1 = int(float(str(thr_qty_1_raw).strip()))
+        except ValueError:
+            thr_qty_1 = 0
         thr_size_1 = str(row.get('Size', '')).strip()
+        print("DEBUG threading #1:", thr_type_1, thr_conn_1, thr_mat_1, thr_qty_1, thr_size_1)
+        
+        
 
         # Threading #2 columns
         thr_type_2 = str(row.get('Threading 2', '')).strip()
-        thr_conn_2 = str(row.get('Threading Connection.1', '')).strip()
+        thr_conn_2 = str(row.get('Threading Connection 2', '')).strip()
         thr_mat_2  = str(row.get('Material.1', '')).strip()
         thr_qty_2  = row.get('Qty.1', 0)
         thr_size_2 = str(row.get('Size.1', '')).strip()
 
         # Threading #3 columns
         thr_type_3 = str(row.get('Threading 3', '')).strip()
-        thr_conn_3 = str(row.get('Threading Connection.2', '')).strip()
+        thr_conn_3 = str(row.get('Threading Connection 3', '')).strip()
         thr_mat_3  = str(row.get('Material.2', '')).strip()
         thr_qty_3  = row.get('Qty.2', 0)
         thr_size_3 = str(row.get('Size.2', '')).strip()
 
         # Threading #4 columns
         thr_type_4 = str(row.get('Threading 4', '')).strip()
-        thr_conn_4 = str(row.get('Threading Connection.3', '')).strip()
+        thr_conn_4 = str(row.get('Threading Connection 4', '')).strip()
         thr_mat_4  = str(row.get('Material.3', '')).strip()
         thr_qty_4  = row.get('Qty.3', 0)
         thr_size_4 = str(row.get('Size.3', '')).strip()
@@ -379,6 +387,8 @@ def process_batch_upload():
                     "thr_conn": thr_conn_4,
                     "thr_qty": thr_qty_4
                 })
+        print("DEBUG row keys:", row.keys())
+        
 
         # ------------------------------------------------------------------
         # (C) Optionally run pyocc(...) to get geometry data
@@ -386,7 +396,7 @@ def process_batch_upload():
         pyocc_data = {
             # fallback defaults if we can't read the step file
             "Length": 130.0,
-            "Vol": 250.0,
+            "VOL": 250.0,
             "Act_Vol": 250.0,
             "VF": 0.0,
             "VID": 0.0,
@@ -404,13 +414,14 @@ def process_batch_upload():
         if step_path and os.path.isfile(step_path):
             try:
                 geo_results, _faces = pyocc(step_path, mat_shape)
-                # e.g. geo_results might have: "Det", "Length", "Vol", "VF", etc.
+                print("DEBUG geo_results:", geo_results)
+                # e.g. geo_results might have: "Det", "Length", "VOL", "VF", etc.
                 surface_detect = geo_results.get("Det", 0.0)
 
                 # Copy them into pyocc_data
                 pyocc_data["Length"]   = geo_results.get("Length", 130.0)
-                pyocc_data["Vol"]      = geo_results.get("Vol", 250.0)
-                pyocc_data["Act_Vol"]  = geo_results.get("Vol", 250.0)
+                pyocc_data["VOL"]      = geo_results.get("VOL", 250.0)
+                pyocc_data["Act_Vol"]  = geo_results.get("Act_Vol", 250.0)
                 pyocc_data["VF"]       = geo_results.get("VF", 0.0)
                 pyocc_data["VID"]      = geo_results.get("VID", 0.0)
                 pyocc_data["VOD"]      = geo_results.get("VOD", 0.0)
@@ -418,6 +429,7 @@ def process_batch_upload():
                 pyocc_data["SGDH"]     = geo_results.get("SGDH", 0.0)
                 # If you have "HRC" from somewhere else, add that too if needed
                 # pyocc_data["HRC"] = ?
+                
 
             except Exception as geo_ex:
                 print(f"Error in pyocc for row {idx}: {geo_ex}")
@@ -444,7 +456,7 @@ def process_batch_upload():
             mat_spec=mat_spec,
             sf=surf_finish,
             offset=offset_val,
-            sec_proc=[],
+            sec_proc=selected_procs,
             pyocc=pyocc_data,
             thread_inputs=thread_inputs
         )
@@ -494,6 +506,7 @@ def process_batch_upload():
         download_name="Batch_Results.csv",
         mimetype="text/csv"
     )
+    print("hi")
 
 
 def load_and_convert_model():
