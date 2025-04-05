@@ -301,21 +301,33 @@ def process_batch_upload():
         thr_type_2 = str(row.get('Threading 2', '')).strip()
         thr_conn_2 = str(row.get('Threading Connection 2', '')).strip()
         thr_mat_2  = str(row.get('Material.1', '')).strip()
-        thr_qty_2  = row.get('Qty.1', 0)
+        thr_qty_2_raw  = str(row.get('Qty.1', 0))
+        try:
+            thr_qty_2 = int(float(str(thr_qty_2_raw)))
+        except ValueError:
+            thr_qty_2 = 0
         thr_size_2 = str(row.get('Size.1', '')).strip()
 
         # Threading #3 columns
         thr_type_3 = str(row.get('Threading 3', '')).strip()
         thr_conn_3 = str(row.get('Threading Connection 3', '')).strip()
         thr_mat_3  = str(row.get('Material.2', '')).strip()
-        thr_qty_3  = row.get('Qty.2', 0)
+        thr_qty_3_raw  = row.get('Qty.2', 0)
+        try:
+            thr_qty_3 = int(float(str(thr_qty_3_raw)))
+        except ValueError:
+            thr_qty_3 = 0
         thr_size_3 = str(row.get('Size.2', '')).strip()
 
         # Threading #4 columns
         thr_type_4 = str(row.get('Threading 4', '')).strip()
         thr_conn_4 = str(row.get('Threading Connection 4', '')).strip()
         thr_mat_4  = str(row.get('Material.3', '')).strip()
-        thr_qty_4  = row.get('Qty.3', 0)
+        thr_qty_4_raw  = row.get('Qty.3', 0)
+        try:
+            thr_qty_4 = int(float(str(thr_qty_4_raw)))
+        except ValueError:
+            thr_qty_4 = 0
         thr_size_4 = str(row.get('Size.3', '')).strip()
 
         # Secondary processes
@@ -395,9 +407,9 @@ def process_batch_upload():
         # ------------------------------------------------------------------
         pyocc_data = {
             # fallback defaults if we can't read the step file
-            "Length": 130.0,
-            "VOL": 250.0,
-            "Act_Vol": 250.0,
+            "Length": 0.0,
+            "VOL": 0.0,
+            "Act_Vol": 0.0,
             "VF": 0.0,
             "VID": 0.0,
             "VOD": 0.0,
@@ -419,9 +431,9 @@ def process_batch_upload():
                 surface_detect = geo_results.get("Det", 0.0)
 
                 # Copy them into pyocc_data
-                pyocc_data["Length"]   = geo_results.get("Length", 130.0)
-                pyocc_data["VOL"]      = geo_results.get("VOL", 250.0)
-                pyocc_data["Act_Vol"]  = geo_results.get("Act_Vol", 250.0)
+                pyocc_data["Length"]   = geo_results.get("Length", 0.0)
+                pyocc_data["VOL"]      = geo_results.get("VOL", 0.0)
+                pyocc_data["Act_Vol"]  = geo_results.get("Act_Vol", 0.0)
                 pyocc_data["VF"]       = geo_results.get("VF", 0.0)
                 pyocc_data["VID"]      = geo_results.get("VID", 0.0)
                 pyocc_data["VOD"]      = geo_results.get("VOD", 0.0)
@@ -558,9 +570,9 @@ def predict_cost():
 
     # Get PythonOCC geometry data from session (set during upload_and_scan)
     pyocc_data = session.get("pyocc_data", {
-    "Length": 130.0,
-    "Act_Vol": 250.0,  # Actual volume from the STEP properties
-    "VOL": 250.0,      # Raw (stock) volume computed from dimensions
+    "Length": 0.0,
+    "Act_Vol": 0.0,  # Actual volume from the STEP properties
+    "VOL": 0.0,      # Raw (stock) volume computed from dimensions
     "VF": 0,
     "VID": 0,
     "SID": 0,
