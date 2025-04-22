@@ -254,7 +254,10 @@
 
         <!-- Part Number -->
         <label>Part Number:</label>
-        <input type="text" name="part_number" placeholder="Enter Part Number"/><br>
+        <input type="text" name="part_number" placeholder="Enter Part Number"
+        value="{{ form_data.get('part_number', [''])[0] }}"/>
+        <br>
+        
 
         <!-- Region -->
         <label>Region:</label>
@@ -301,7 +304,7 @@
           <option value="">-- select --</option>
           {% for sf in surface_finishes %}
           <option value="{{ sf }}"
-            {% if form_data.get('surface_finish') and form_data.get('surface_finish')[0] == sf %}
+            {% if form_data.get('surface_finish') and form_data.get('surface_finish')[0] | int == sf %}
             selected
             {% endif %}
           >{{ sf }}</option>
@@ -642,79 +645,205 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
 
-  <!-- AJAX script for the 4 threading boxes -->
-  <script>
-  document.addEventListener("DOMContentLoaded", function(){
-    fetchThreadOptions(1, {});
-    fetchThreadOptions(2, {});
-    fetchThreadOptions(3, {});
-    fetchThreadOptions(4, {});
-  });
 
+  <script>
+    // Helper function to populate select dropdowns
+    function fillSelect(selectId, items, selectedVal) {
+      let sel = document.getElementById(selectId);
+      if (!sel) {
+        console.error("Element not found:", selectId);
+        return;
+      }
+
+      // Store the first option (usually "-- select --")
+      let firstOption = sel.options.length > 0 ? sel.options[0] : null;
+      sel.innerHTML = ""; // Clear existing options AFTER the first one
+
+      // Re-add the first option if it existed
+      if (firstOption) {
+        sel.appendChild(firstOption);
+        // Ensure it's selected only if no other valid value is being selected
+        firstOption.selected = (selectedVal === undefined || selectedVal === null || selectedVal === "");
+      } else {
+        // Or add a default if none existed before
+        let defOpt = document.createElement("option");
+        defOpt.value = "";
+        defOpt.text = "-- select --";
+        sel.appendChild(defOpt);
+      }
+
+      // Add new items if the items array is valid
+      if (Array.isArray(items)) {
+        items.forEach(v => {
+          if (v === undefined || v === null) return; // Skip null/undefined items
+
+          let opt = document.createElement("option");
+          let valueStr = String(v); // Work with strings for value and comparison
+          opt.value = valueStr;
+          opt.text = valueStr;
+
+          // Set selected if this item matches the desired selectedVal (as strings)
+          if (selectedVal !== undefined && selectedVal !== null && valueStr === String(selectedVal)) {
+            opt.selected = true;
+            if (firstOption) firstOption.selected = false; // Unselect "-- select --"
+          }
+          sel.appendChild(opt);
+        });
+      } else {
+          console.warn("Invalid items array passed to fillSelect for:", selectId, items);
+      }
+
+      // Ensure the select element's value property matches the intended selection
+      if (selectedVal !== undefined && selectedVal !== null && selectedVal !== "") {
+          // Check if the selectedVal actually exists as an option value
+          let exists = Array.from(sel.options).some(opt => opt.value === String(selectedVal));
+          if (exists) {
+              sel.value = selectedVal;
+          } else {
+              sel.selectedIndex = 0; // Default to "-- select --" if value doesn't exist
+          }
+      } else {
+          sel.selectedIndex = 0; // Default to "-- select --"
+      }
+    }
+  
   function onTypeChange(boxNum) {
     let tVal = document.getElementById(`typeSelect${boxNum}`).value;
-    fetchThreadOptions(boxNum, {type: tVal});
+    let url = "/api/thread_options?";
+    if (tVal) {
+        url += "type=" + encodeURIComponent(tVal);
+    } else {
+        // If type is cleared, reset subsequent fields
+        fillSelect(`matSelect${boxNum}`, [], '');
+        fillSelect(`connSelect${boxNum}`, [], '');
+        fillSelect(`sizeSelect${boxNum}`, [], '');
+        return; // Don't fetch if type is empty
+    }
+
+    console.log(`Type changed (${boxNum}): Fetching for ${tVal}`); // Debug
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+       })
+      .then(data => {
+        console.log(`Type changed (${boxNum}): Received data`, data); // Debug
+        // Update Material, Connection, Size - Clear their selections
+        fillSelect(`matSelect${boxNum}`, data.materials || [], '');
+        fillSelect(`connSelect${boxNum}`, data.connections || [], '');
+        fillSelect(`sizeSelect${boxNum}`, data.sizes || [], '');
+      })
+      .catch(err => console.error("Error in onTypeChange fetch:", err));
   }
+
   function onMatChange(boxNum) {
     let tVal = document.getElementById(`typeSelect${boxNum}`).value;
     let mVal = document.getElementById(`matSelect${boxNum}`).value;
-    fetchThreadOptions(boxNum, {type: tVal, material: mVal});
+    let url = "/api/thread_options?";
+    let qParts = [];
+    // Need Type to filter Material effectively
+    if (!tVal) return; // Should ideally not happen if Type controls Material population
+    qParts.push("type=" + encodeURIComponent(tVal));
+
+    if (mVal) {
+        qParts.push("material=" + encodeURIComponent(mVal));
+    } else {
+        // If material is cleared, reset subsequent fields
+        fillSelect(`connSelect${boxNum}`, [], '');
+        fillSelect(`sizeSelect${boxNum}`, [], '');
+        return; // Don't fetch if material is empty
+    }
+    url += qParts.join("&");
+
+    console.log(`Material changed (${boxNum}): Fetching for ${tVal}, ${mVal}`); // Debug
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        console.log(`Material changed (${boxNum}): Received data`, data); // Debug
+        // Update Connection, Size - Clear their selections
+        fillSelect(`connSelect${boxNum}`, data.connections || [], '');
+        fillSelect(`sizeSelect${boxNum}`, data.sizes || [], '');
+      })
+      .catch(err => console.error("Error in onMatChange fetch:", err));
   }
-  function onSizeChange(boxNum) {
-    let tVal = document.getElementById(`typeSelect${boxNum}`).value;
-    let mVal = document.getElementById(`matSelect${boxNum}`).value;
-    let sVal = document.getElementById(`sizeSelect${boxNum}`).value;
-    fetchThreadOptions(boxNum, {type: tVal, material: mVal, size: sVal});
-  }
+
   function onConnChange(boxNum) {
     let tVal = document.getElementById(`typeSelect${boxNum}`).value;
     let mVal = document.getElementById(`matSelect${boxNum}`).value;
-    let sVal = document.getElementById(`sizeSelect${boxNum}`).value;
-    let cVal = document.getElementById(`connSelect${boxNum}`).value;
-    fetchThreadOptions(boxNum, {type: tVal, material: mVal, size: sVal, connection: cVal});
-  }
+    let cVal = document.getElementById(`connSelect${boxNum}`).value; // Value just selected
 
-  function fetchThreadOptions(boxNum, params) {
+    // --- ADD LOGGING ---
+    console.log(`onConnChange START ---- Box: ${boxNum}`);
+    console.log(`Selected Connection (cVal): ${cVal}`);
+    console.log(`Current value property of connSelect${boxNum}: ${document.getElementById(`connSelect${boxNum}`).value}`);
+    // -----------------
+
     let url = "/api/thread_options?";
     let qParts = [];
-    if (params.type) qParts.push("type=" + encodeURIComponent(params.type));
-    if (params.material) qParts.push("material=" + encodeURIComponent(params.material));
-    if (params.size) qParts.push("size=" + encodeURIComponent(params.size));
-    if (params.connection) qParts.push("connection=" + encodeURIComponent(params.connection));
+    // Need Type and Material to filter Connection effectively
+    if (!tVal || !mVal) return; // Should not happen if flow is correct
+    qParts.push("type=" + encodeURIComponent(tVal));
+    qParts.push("material=" + encodeURIComponent(mVal));
 
+    if (cVal) {
+        qParts.push("connection=" + encodeURIComponent(cVal));
+    } else {
+        // If connection is cleared, reset subsequent field
+        fillSelect(`sizeSelect${boxNum}`, [], '');
+        return; // Don't fetch if connection is empty
+    }
     url += qParts.join("&");
 
+    console.log(`Connection changed (${boxNum}): Fetching for ${tVal}, ${mVal}, ${cVal}`); // Debug
     fetch(url)
-      .then(res => res.json())
-      .then(data => {
-        fillSelect(`typeSelect${boxNum}`, data.types, params.type);
-        fillSelect(`matSelect${boxNum}`, data.materials, params.material);
-        fillSelect(`sizeSelect${boxNum}`, data.sizes, params.size);
-        fillSelect(`connSelect${boxNum}`, data.connections, params.connection);
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
       })
-      .catch(err => console.error("Error fetching /api/thread_options:", err));
+      .then(data => {
+        console.log(`Connection changed (${boxNum}): Received data`, data); // Debug
+        // Update ONLY Size - Clear its selection
+        fillSelect(`sizeSelect${boxNum}`, data.sizes || [], '');
+        // *** DO NOT update connSelect${boxNum} here ***
+      })
+      .catch(err => console.error("Error in onConnChange fetch:", err));
   }
 
-  function fillSelect(selectId, items, selectedVal) {
-    let sel = document.getElementById(selectId);
-    if (!sel) return;
-    sel.innerHTML = "";
-    let defOpt = document.createElement("option");
-    defOpt.value = "";
-    defOpt.text = "-- select --";
-    sel.appendChild(defOpt);
-
-    items.forEach(v => {
-      let opt = document.createElement("option");
-      opt.value = v;
-      opt.text  = v;
-      if (v === selectedVal) {
-        opt.selected = true;
-      }
-      sel.appendChild(opt);
-    });
+  function onSizeChange(boxNum) {
+    // Changing Size typically doesn't filter previous options (Type, Mat, Conn).
+    // No fetch call needed here for filtering those.
+    let sVal = document.getElementById(`sizeSelect${boxNum}`).value;
+    console.log(`Size changed for box ${boxNum} to: ${sVal}`);
   }
+  
+  // --- Initial Population on Page Load ---
+  document.addEventListener("DOMContentLoaded", function(){
+    console.log("DOM Loaded. Initializing Threading Type dropdowns.");
+    // Fetch only the initial list of ALL possible Types
+    fetch("/api/thread_options") // No parameters = get all options initially
+      .then(res => {
+           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+           return res.json();
+       })
+      .then(data => {
+        // Populate only the TYPE dropdowns for all 4 boxes initially
+        for (let i = 1; i <= 4; i++) {
+          fillSelect(`typeSelect${i}`, data.types || [], '');
+          // Initialize others as empty (besides "-- select --")
+          fillSelect(`matSelect${i}`, [], '');
+          fillSelect(`connSelect${i}`, [], '');
+          fillSelect(`sizeSelect${i}`, [], '');
+        }
+        console.log("Initial Type options populated.");
+      })
+      .catch(err => console.error("Error fetching initial /api/thread_options:", err));
+  });
+
   </script>
+  
 
 </body>
 </html>

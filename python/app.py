@@ -92,6 +92,11 @@ def index():
             flash("No valid action specified.")
             return redirect(url_for('index'))
 
+    form_data = session.get('last_form_data', {})
+    print("DEBUG: Form data retrieved from session:", form_data) # Print whole dict
+    print("DEBUG: Surface finish in session:", form_data.get('surface_finish')) # Print specific key
+    opts = load_options()
+    print("DEBUG: Surface finish options list:", opts.get('surface_finishes')) # Print options list
     # If it's a GET, just render the page with any cost/breakdown and the form_data
     return render_template(
         'index.html',
@@ -195,6 +200,7 @@ def upload_and_scan():
     print("DEBUG: viewer_script =", viewer_script)
     subprocess.Popen([python_exe, viewer_script, step_path])
 
+    session['last_form_data'] = request.form.to_dict(flat=False)
     return redirect(url_for('index'))
 
 def generate_report():
@@ -525,14 +531,31 @@ def load_and_convert_model():
     """
     Loads the ANN model from a Keras H5 file.
     """
-    #keras_path = os.path.join(os.path.dirname(__file__), "ann_model1.keras")
-    keras_path = os.path.join("models", "ann_model1.keras")
+    try:
+        #keras_path = os.path.join(os.path.dirname(__file__), "ann_model1.keras")
+        base_dir = os.path.dirname(__file__)
+        #Construct the absolute path to the model file
+        # Go up one level from script_dir (SCANNapp/python/) to get to SCANNapp/
+        # Then go into the 'models' subfolder
+        project_dir = os.path.abspath(os.path.join(base_dir, os.pardir))
+        
 
-    if os.path.exists(keras_path):
-        print("Loading model from Keras H5 file:", keras_path)
-        return tf.keras.models.load_model(keras_path)
-    else:
-        raise FileNotFoundError(f"Keras model file not found at: {keras_path}")
+        keras_path = os.path.join(project_dir,"models", "ann_model1.keras")
+        print(f"DEBUG DEV Path Check: Trying to load model from: {keras_path}") # Debug print
+
+        if not os.path.exists(keras_path):
+            raise FileNotFoundError(f"Keras model file not found! Calculated path: {keras_path}. Please check the path relative to app.py and ensure the file exists.")
+            
+        print("Loading model from Keras file:", keras_path)
+            # Load the model using the absolute path
+        model = tf.keras.models.load_model(keras_path, compile=False) # Assuming compile=False is okay
+        print("Model loaded successfully in development.")
+        return model # Return the loaded model
+    
+    except Exception as e:
+        print(f"ERROR in load_and_convert_model: {e}")
+        # Re-raise the exception so Flask debugger shows it
+        raise
     
 @app.route('/reset_all', methods=['POST'])
 def reset_all():
